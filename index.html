@@ -262,7 +262,16 @@ document.getElementById('saveKeyBtn').addEventListener('click', () => {
   document.getElementById('status').textContent = apiKey ? 'Key saved — powers both replies and voice.' : 'No key set — will use free browser voice as fallback.';
 });
 
-/* ---------------- SPEECH RECOGNITION (STT) ---------------- */
+/* ---------------- AUDIO UNLOCK (iOS autoplay fix) ---------------- */
+// iOS Safari blocks audio.play() unless it happens inside a real user gesture.
+// We create one reusable <audio> element and "unlock" it the moment the user
+// taps the mic (a real tap), so later programmatic play() calls on this same
+// element are allowed even after an async network request finishes.
+const SILENT_WAV = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+const ttsAudio = new Audio(SILENT_WAV);
+function unlockAudio() {
+  ttsAudio.play().then(() => { ttsAudio.pause(); ttsAudio.currentTime = 0; }).catch(() => {});
+}
 const micBtn = document.getElementById('micBtn');
 const statusEl = document.getElementById('status');
 const transcriptEl = document.getElementById('transcript');
@@ -310,6 +319,7 @@ if (SpeechRecognition) {
 }
 
 micBtn.addEventListener('click', () => {
+  unlockAudio();
   if (!recognizer) return;
   if (recognizing) {
     recognizer.stop();
@@ -325,6 +335,7 @@ async function speak(text) {
   setExpression('talking');
   if (apiKey) {
     try {
+      statusEl.textContent = 'TTS: requesting...';
       const res = await fetch("https://openrouter.ai/api/v1/audio/speech", {
         method: "POST",
         headers: {
@@ -338,17 +349,50 @@ async function speak(text) {
           response_format: "mp3"
         })
       });
-      if (!res.ok) throw new Error("TTS request failed: " + res.status);
+
+      const contentType = res.headers.get('content-type') || 'unknown';
+      statusEl.textContent = 'TTS: HTTP ' + res.status + ', type=' + contentType;
+
+      if (!res.ok) {
+        const errText = await res.text();
+        statusEl.textContent = 'TTS error ' + res.status + ': ' + errText.slice(0, 200);
+        speakFallback(text);
+        return;
+      }
+
       const blob = await res.blob();
+      statusEl.textContent = 'TTS: got ' + blob.size + ' bytes, type=' + blob.type;
+
+      // If the server actually sent back JSON/text (an error body) despite a 200 status,
+      // blob.type won't start with "audio" — read it as text and show it instead of
+      // silently trying (and failing) to play it as audio.
+      if (!blob.type.startsWith('audio') && blob.size < 5000) {
+        const asText = await blob.text();
+        statusEl.textContent = 'TTS returned non-audio: ' + asText.slice(0, 200);
+        speakFallback(text);
+        return;
+      }
+
       const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audio.onended = () => { setExpression('happy', 900); URL.revokeObjectURL(url); };
-      audio.onerror = () => { setExpression('happy', 900); speakFallback(text); };
-      audio.play();
+      ttsAudio.onended = () => { setExpression('happy', 900); URL.revokeObjectURL(url); };
+      ttsAudio.onerror = (e) => {
+        statusEl.textContent = 'Audio element failed to decode/play the response.';
+        setExpression('happy', 900);
+        speakFallback(text);
+      };
+      ttsAudio.src = url;
+      ttsAudio.load();
+      ttsAudio.play().then(() => {
+        statusEl.textContent = 'Playing TTS audio...';
+      }).catch((err) => {
+        statusEl.textContent = 'play() rejected: ' + err.name + ' — ' + err.message;
+        speakFallback(text);
+      });
       return;
     } catch (err) {
-      console.error(err);
-      // fall through to browser TTS
+      statusEl.textContent = 'TTS fetch threw: ' + err.message;
+      speakFallback(text);
+      return;
     }
   }
   speakFallback(text);
@@ -411,7 +455,6 @@ async function getAIResponse(userText) {
 async function handleUserSpeech(text) {
   const reply = await getAIResponse(text);
   replyEl.textContent = reply;
-  statusEl.textContent = 'Tap the mic and talk. Face reacts to voice + tilt.';
   speak(reply);
 }
 </script>
