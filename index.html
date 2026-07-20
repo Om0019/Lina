@@ -343,9 +343,9 @@ async function speak(text) {
           "Authorization": "Bearer " + apiKey
         },
         body: JSON.stringify({
-          model: "openai/gpt-4o-mini-tts-2025-12-15",
+          model: "google/gemini-3.1-flash-tts-preview",
           input: text,
-          voice: "nova",
+          voice: "Leda",
           response_format: "mp3"
         })
       });
