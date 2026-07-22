@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Accelerometer } from 'expo-sensors';
+import type { AccelerometerMeasurement } from 'expo-sensors';
 
 export type Tilt = { x: number; y: number };
 
@@ -10,7 +10,14 @@ const SHAKE_COOLDOWN_MS = 1200;
 /**
  * Smoothed device tilt in -1..1 per axis, plus shake detection via sudden
  * acceleration jerk. Silently does nothing where the sensor is unavailable
- * (web without motion permission, simulators, etc.) rather than throwing.
+ * (web without motion permission, simulators, or a binary that hasn't been
+ * rebuilt with expo-sensors linked in yet) rather than throwing.
+ *
+ * expo-sensors is required lazily, inside the try block, instead of via a
+ * static top-level import: its native module binding runs as an import-time
+ * side effect, and on a binary shipped before this dependency was added,
+ * that side effect throws before this hook's own try/catch would ever run —
+ * crashing the whole JS bundle rather than just leaving tilt inert.
  */
 export function useTilt(onShake?: () => void): Tilt {
   const [tilt, setTilt] = useState<Tilt>({ x: 0, y: 0 });
@@ -23,8 +30,9 @@ export function useTilt(onShake?: () => void): Tilt {
   useEffect(() => {
     let subscription: { remove: () => void } | null = null;
     try {
+      const { Accelerometer } = require('expo-sensors') as typeof import('expo-sensors');
       Accelerometer.setUpdateInterval(80);
-      subscription = Accelerometer.addListener(({ x, y, z }) => {
+      subscription = Accelerometer.addListener(({ x, y, z }: AccelerometerMeasurement) => {
         smoothed.current.x += (x - smoothed.current.x) * SMOOTHING;
         smoothed.current.y += (y - smoothed.current.y) * SMOOTHING;
         setTilt({
@@ -42,7 +50,7 @@ export function useTilt(onShake?: () => void): Tilt {
         }
       });
     } catch {
-      // No accelerometer on this platform — face just stays put.
+      // No accelerometer, or the native module isn't linked into this build yet.
     }
     return () => subscription?.remove();
   }, []);
