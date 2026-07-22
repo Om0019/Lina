@@ -5,6 +5,7 @@ import { createTTS, saveAudioToFile, type TtsEngine } from 'react-native-sherpa-
 import { TTS_MODEL } from '../models/registry';
 import { ensureArchiveModel, type ModelProgress } from './modelManager';
 import { toNativePath } from './nativePath';
+import { getVoiceSid } from './voiceSettings';
 
 let engine: TtsEngine | null = null;
 
@@ -21,7 +22,7 @@ export async function loadTts(onProgress?: (progress: ModelProgress) => void): P
 export async function synthesizeToFile(text: string): Promise<string> {
   if (!engine) throw new Error('TTS not loaded — call loadTts() first.');
 
-  const audio = await engine.generateSpeech(text);
+  const audio = await engine.generateSpeech(text, { sid: getVoiceSid() });
 
   const outDir = new Directory(Paths.cache, 'tts-output');
   if (!outDir.exists) outDir.create({ intermediates: true });

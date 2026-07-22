@@ -6,6 +6,8 @@ import type { ModelProgress } from '../services/modelManager';
 import { ensureMicPermission, WHISPER_RECORDING_OPTIONS } from '../services/recording';
 import { loadStt, transcribeFile } from '../services/stt';
 import { loadTts, synthesizeToFile } from '../services/tts';
+import { getVoiceSid, setVoiceSid } from '../services/voiceSettings';
+import { TTS_SPEAKER_COUNT } from '../models/registry';
 
 export type Expression = 'idle' | 'listening' | 'thinking' | 'talking' | 'happy' | 'error';
 export type SetupStage = 'not-started' | 'llm' | 'stt' | 'tts' | 'ready';
@@ -18,6 +20,7 @@ export type CompanionState = {
   reply: string;
   statusText: string;
   isRecording: boolean;
+  voiceSid: number;
 };
 
 const STAGE_LABEL: Record<Exclude<SetupStage, 'not-started' | 'ready'>, string> = {
@@ -34,6 +37,7 @@ export function useCompanion() {
   const [reply, setReply] = useState('');
   const [statusText, setStatusText] = useState('Tap the mic and talk to Lina.');
   const [isRecording, setIsRecording] = useState(false);
+  const [voiceSid, setVoiceSidState] = useState(() => getVoiceSid());
 
   const recorder = useAudioRecorder(WHISPER_RECORDING_OPTIONS);
   const player = useAudioPlayer();
@@ -43,6 +47,14 @@ export function useCompanion() {
     setExpression('happy');
     if (happyTimer.current) clearTimeout(happyTimer.current);
     happyTimer.current = setTimeout(() => setExpression('idle'), 900);
+  }, []);
+
+  const cycleVoice = useCallback((direction: 1 | -1) => {
+    setVoiceSidState((current) => {
+      const next = ((current + direction) % TTS_SPEAKER_COUNT + TTS_SPEAKER_COUNT) % TTS_SPEAKER_COUNT;
+      setVoiceSid(next);
+      return next;
+    });
   }, []);
 
   const setup = useCallback(async () => {
@@ -136,7 +148,8 @@ export function useCompanion() {
     reply,
     statusText,
     isRecording,
+    voiceSid,
   };
 
-  return { state, setup, toggleRecording };
+  return { state, setup, toggleRecording, cycleVoice };
 }

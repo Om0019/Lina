@@ -39,14 +39,19 @@ export const STT_MODEL: FileModelSpec = {
   approxSizeMB: 148,
 };
 
+// Multi-speaker (904 voices, sid 0-903). Speaker 886 corresponds to LibriTTS-R
+// corpus speaker id "4926" — see voiceSettings.ts for the user-selectable sid.
 export const TTS_MODEL: ArchiveModelSpec = {
   kind: 'archive',
-  id: 'vits-piper-en_US-amy-medium',
-  url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-amy-medium.tar.bz2',
-  filename: 'vits-piper-en_US-amy-medium.tar.bz2',
+  id: 'vits-piper-en_US-libritts_r-medium',
+  url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-libritts_r-medium.tar.bz2',
+  filename: 'vits-piper-en_US-libritts_r-medium.tar.bz2',
   archiveFormat: 'tar.bz2',
-  approxSizeMB: 65,
+  approxSizeMB: 79,
 };
+
+export const TTS_SPEAKER_COUNT = 904;
+export const TTS_SPEAKER_ID_DEFAULT = 886;
 
 export const ALL_MODELS = [LLM_MODEL, STT_MODEL, TTS_MODEL];
 

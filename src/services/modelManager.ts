@@ -1,4 +1,5 @@
-import { Directory, File, Paths } from 'expo-file-system';
+import { Directory, DownloadTask, File, Paths, type DownloadPauseState } from 'expo-file-system';
+import { AppState, type AppStateStatus } from 'react-native';
 import { extractArchive } from 'react-native-sherpa-onnx/extraction';
 
 import type { ArchiveModelSpec, FileModelSpec } from '../models/registry';
@@ -7,10 +8,66 @@ import { toNativePath } from './nativePath';
 export type DownloadProgress = { bytesWritten: number; totalBytes: number };
 export type ModelProgress = { stage: 'downloading' | 'extracting' | 'done'; fraction: number };
 
+/** Thrown by downloadWithResume when the app backgrounds mid-download; the
+ * transfer is checkpointed to disk rather than lost, and resumes from where
+ * it left off the next time this model is requested. */
+export class DownloadPausedError extends Error {
+  constructor() {
+    super('Download paused — will resume next launch.');
+    this.name = 'DownloadPausedError';
+  }
+}
+
 function modelsDirectory(): Directory {
   const dir = new Directory(Paths.document, 'models');
   if (!dir.exists) dir.create({ intermediates: true });
   return dir;
+}
+
+function resumeStateFile(dir: Directory, filename: string): File {
+  return new File(dir, `${filename}.resume.json`);
+}
+
+/**
+ * Downloads a file to `dir`, checkpointing resumable state whenever the app
+ * backgrounds mid-transfer. `File.downloadFileAsync`'s underlying background
+ * URLSession keeps transferring while suspended, but its JS-side task isn't
+ * restored if the app process is killed and relaunched — leaving no way to
+ * find the (possibly complete) download next time, so the app just restarts
+ * it from zero. Explicitly pausing on background and persisting the native
+ * resume token avoids that: the next launch resumes instead of restarting.
+ */
+async function downloadWithResume(
+  url: string,
+  dir: Directory,
+  filename: string,
+  onProgress?: (progress: DownloadProgress) => void
+): Promise<File> {
+  const stateFile = resumeStateFile(dir, filename);
+  const savedState: DownloadPauseState | null = stateFile.exists
+    ? (JSON.parse(stateFile.textSync()) as DownloadPauseState)
+    : null;
+
+  const task = savedState
+    ? DownloadTask.fromSavable(savedState, { onProgress })
+    : File.createDownloadTask(url, dir, { onProgress });
+
+  const subscription = AppState.addEventListener('change', (status: AppStateStatus) => {
+    if (status === 'background') task.pause();
+  });
+
+  try {
+    const file = savedState ? await task.resumeAsync() : await task.downloadAsync();
+    if (!file) {
+      if (!stateFile.exists) stateFile.create();
+      stateFile.write(JSON.stringify(task.savable()));
+      throw new DownloadPausedError();
+    }
+    if (stateFile.exists) stateFile.delete();
+    return file;
+  } finally {
+    subscription.remove();
+  }
 }
 
 /**
@@ -28,12 +85,9 @@ export async function ensureFileModel(
     return destination.uri;
   }
 
-  const file = await File.downloadFileAsync(spec.url, dir, {
-    idempotent: true,
-    onProgress: (data: DownloadProgress) => {
-      const fraction = data.totalBytes > 0 ? data.bytesWritten / data.totalBytes : 0;
-      onProgress?.({ stage: 'downloading', fraction });
-    },
+  const file = await downloadWithResume(spec.url, dir, spec.filename, (data) => {
+    const fraction = data.totalBytes > 0 ? data.bytesWritten / data.totalBytes : 0;
+    onProgress?.({ stage: 'downloading', fraction });
   });
 
   onProgress?.({ stage: 'done', fraction: 1 });
@@ -59,12 +113,9 @@ export async function ensureArchiveModel(
 
   const archiveFile = new File(dir, spec.filename);
   if (!archiveFile.exists) {
-    await File.downloadFileAsync(spec.url, dir, {
-      idempotent: true,
-      onProgress: (data: DownloadProgress) => {
-        const fraction = data.totalBytes > 0 ? data.bytesWritten / data.totalBytes : 0;
-        onProgress?.({ stage: 'downloading', fraction });
-      },
+    await downloadWithResume(spec.url, dir, spec.filename, (data) => {
+      const fraction = data.totalBytes > 0 ? data.bytesWritten / data.totalBytes : 0;
+      onProgress?.({ stage: 'downloading', fraction });
     });
   }
 

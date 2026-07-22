@@ -1,12 +1,12 @@
 import React, { useEffect } from 'react';
-import { ActivityIndicator, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 
 import { CompanionFace } from '../components/CompanionFace';
 import { MicButton } from '../components/MicButton';
 import { useCompanion } from '../hooks/useCompanion';
 
 export function CompanionScreen() {
-  const { state, setup, toggleRecording } = useCompanion();
+  const { state, setup, toggleRecording, cycleVoice } = useCompanion();
 
   useEffect(() => {
     void setup();
@@ -41,6 +41,16 @@ export function CompanionScreen() {
         <MicButton isRecording={state.isRecording} disabled={!isReady} onPress={toggleRecording} />
 
         <Text style={styles.status}>{state.statusText}</Text>
+
+        <View style={styles.voicePicker}>
+          <Pressable onPress={() => cycleVoice(-1)} hitSlop={10} style={styles.voiceArrow}>
+            <Text style={styles.voiceArrowText}>‹</Text>
+          </Pressable>
+          <Text style={styles.voiceLabel}>Voice #{state.voiceSid}</Text>
+          <Pressable onPress={() => cycleVoice(1)} hitSlop={10} style={styles.voiceArrow}>
+            <Text style={styles.voiceArrowText}>›</Text>
+          </Pressable>
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -91,5 +101,24 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     maxWidth: 320,
     minHeight: 18,
+  },
+  voicePicker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  voiceArrow: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  voiceArrowText: {
+    fontSize: 20,
+    color: '#7fd1ff',
+  },
+  voiceLabel: {
+    fontSize: 13,
+    color: '#8a8f9a',
+    minWidth: 84,
+    textAlign: 'center',
   },
 });
