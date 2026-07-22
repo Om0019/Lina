@@ -6,7 +6,7 @@ import { MicButton } from '../components/MicButton';
 import { useCompanion } from '../hooks/useCompanion';
 
 export function CompanionScreen() {
-  const { state, setup, toggleRecording, cycleVoice } = useCompanion();
+  const { state, setup, toggleRecording, cycleVoice, nudge } = useCompanion();
 
   useEffect(() => {
     void setup();
@@ -26,7 +26,7 @@ export function CompanionScreen() {
           </Text>
         )}
 
-        <CompanionFace expression={state.expression} />
+        <CompanionFace expression={state.expression} burst={state.burst} onNudge={nudge} />
 
         {!isReady && (
           <View style={styles.progressRow}>

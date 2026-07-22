@@ -24,6 +24,8 @@ const config: ExpoConfig = {
         'Lina listens to what you say so she can reply — audio is transcribed entirely on this device and never leaves it.',
       NSSpeechRecognitionUsageDescription:
         'On-device speech recognition turns your voice into text for Lina to respond to.',
+      NSMotionUsageDescription:
+        "Lina uses your phone's tilt to look around and react when you shake her.",
     },
   },
   android: {
