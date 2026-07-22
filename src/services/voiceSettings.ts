@@ -1,21 +1,21 @@
 import { File, Paths } from 'expo-file-system';
 
-import { TTS_SPEAKER_COUNT, TTS_SPEAKER_ID_DEFAULT } from '../models/registry';
+import { TTS_VOICES, TTS_VOICE_DEFAULT_INDEX } from '../models/registry';
 
 const settingsFile = new File(Paths.document, 'settings.json');
 
-type Settings = { voiceSid: number };
+type Settings = { voiceIndex: number };
 
 function readSettings(): Settings {
-  if (!settingsFile.exists) return { voiceSid: TTS_SPEAKER_ID_DEFAULT };
+  if (!settingsFile.exists) return { voiceIndex: TTS_VOICE_DEFAULT_INDEX };
   try {
     const parsed = JSON.parse(settingsFile.textSync());
-    const sid = parsed.voiceSid;
-    if (typeof sid === 'number' && sid >= 0 && sid < TTS_SPEAKER_COUNT) return { voiceSid: sid };
+    const index = parsed.voiceIndex;
+    if (typeof index === 'number' && index >= 0 && index < TTS_VOICES.length) return { voiceIndex: index };
   } catch {
     // Corrupt or missing settings file — fall through to the default.
   }
-  return { voiceSid: TTS_SPEAKER_ID_DEFAULT };
+  return { voiceIndex: TTS_VOICE_DEFAULT_INDEX };
 }
 
 function writeSettings(settings: Settings): void {
@@ -23,11 +23,11 @@ function writeSettings(settings: Settings): void {
   settingsFile.write(JSON.stringify(settings));
 }
 
-export function getVoiceSid(): number {
-  return readSettings().voiceSid;
+export function getVoiceIndex(): number {
+  return readSettings().voiceIndex;
 }
 
-export function setVoiceSid(sid: number): void {
-  const clamped = ((sid % TTS_SPEAKER_COUNT) + TTS_SPEAKER_COUNT) % TTS_SPEAKER_COUNT;
-  writeSettings({ voiceSid: clamped });
+export function setVoiceIndex(index: number): void {
+  const clamped = ((index % TTS_VOICES.length) + TTS_VOICES.length) % TTS_VOICES.length;
+  writeSettings({ voiceIndex: clamped });
 }

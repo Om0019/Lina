@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
-import Svg, { Circle, Ellipse, Path } from 'react-native-svg';
+import { Animated, Easing, StyleSheet } from 'react-native';
+import Svg, { Ellipse, Path } from 'react-native-svg';
 
 import type { Expression } from '../hooks/useCompanion';
 
@@ -34,6 +34,28 @@ export function CompanionFace({ expression }: { expression: Expression }) {
   const [blink, setBlink] = useState(0);
   const [mouthOpen, setMouthOpen] = useState(0);
   const blinkState = useRef({ last: performance.now(), next: 2500 + Math.random() * 2500, animating: false });
+  const floatAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatAnim, {
+          toValue: 1,
+          duration: 2200,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(floatAnim, {
+          toValue: 0,
+          duration: 2200,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [floatAnim]);
 
   useEffect(() => {
     let raf = 0;
@@ -84,15 +106,16 @@ export function CompanionFace({ expression }: { expression: Expression }) {
   const eyeRy = Math.max(2, eyeR * (1 - closeAmt * 0.9));
   const eyeRx = eyeR * 0.62;
 
+  const translateY = floatAnim.interpolate({ inputRange: [0, 1], outputRange: [-10, 10] });
+
   return (
-    <View style={styles.wrap}>
+    <Animated.View style={[styles.wrap, { transform: [{ translateY }] }]}>
       <Svg width={SIZE} height={SIZE}>
-        <Circle cx={CENTER} cy={CENTER} r={CENTER} fill="#000" />
         <Ellipse cx={CENTER - EYE_GAP} cy={EYE_Y} rx={eyeRx} ry={eyeRy} fill={GLOW} />
         <Ellipse cx={CENTER + EYE_GAP} cy={EYE_Y} rx={eyeRx} ry={eyeRy} fill={GLOW} />
         <Path d={mouthPath(mouthW, mouthCurve, mouthH)} fill={GLOW} />
       </Svg>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -100,12 +123,5 @@ const styles = StyleSheet.create({
   wrap: {
     width: SIZE,
     height: SIZE,
-    borderRadius: SIZE / 2,
-    backgroundColor: '#000',
-    shadowColor: '#000',
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 10,
   },
 });

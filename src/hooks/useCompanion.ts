@@ -5,9 +5,9 @@ import { generateReply, loadLlm } from '../services/llm';
 import type { ModelProgress } from '../services/modelManager';
 import { ensureMicPermission, WHISPER_RECORDING_OPTIONS } from '../services/recording';
 import { loadStt, transcribeFile } from '../services/stt';
-import { loadTts, synthesizeToFile } from '../services/tts';
-import { getVoiceSid, setVoiceSid } from '../services/voiceSettings';
-import { TTS_SPEAKER_COUNT } from '../models/registry';
+import { loadTts, switchVoice, synthesizeToFile } from '../services/tts';
+import { getVoiceIndex, setVoiceIndex } from '../services/voiceSettings';
+import { TTS_VOICES } from '../models/registry';
 
 export type Expression = 'idle' | 'listening' | 'thinking' | 'talking' | 'happy' | 'error';
 export type SetupStage = 'not-started' | 'llm' | 'stt' | 'tts' | 'ready';
@@ -20,7 +20,9 @@ export type CompanionState = {
   reply: string;
   statusText: string;
   isRecording: boolean;
-  voiceSid: number;
+  voiceIndex: number;
+  voiceLabel: string;
+  isVoiceLoading: boolean;
 };
 
 const STAGE_LABEL: Record<Exclude<SetupStage, 'not-started' | 'ready'>, string> = {
@@ -37,7 +39,8 @@ export function useCompanion() {
   const [reply, setReply] = useState('');
   const [statusText, setStatusText] = useState('Tap the mic and talk to Lina.');
   const [isRecording, setIsRecording] = useState(false);
-  const [voiceSid, setVoiceSidState] = useState(() => getVoiceSid());
+  const [voiceIndex, setVoiceIndexState] = useState(() => getVoiceIndex());
+  const [isVoiceLoading, setIsVoiceLoading] = useState(false);
 
   const recorder = useAudioRecorder(WHISPER_RECORDING_OPTIONS);
   const player = useAudioPlayer();
@@ -49,13 +52,25 @@ export function useCompanion() {
     happyTimer.current = setTimeout(() => setExpression('idle'), 900);
   }, []);
 
-  const cycleVoice = useCallback((direction: 1 | -1) => {
-    setVoiceSidState((current) => {
-      const next = ((current + direction) % TTS_SPEAKER_COUNT + TTS_SPEAKER_COUNT) % TTS_SPEAKER_COUNT;
-      setVoiceSid(next);
-      return next;
-    });
-  }, []);
+  const cycleVoice = useCallback(
+    async (direction: 1 | -1) => {
+      const count = TTS_VOICES.length;
+      const next = ((voiceIndex + direction) % count + count) % count;
+      setIsVoiceLoading(true);
+      setStatusText(`Loading ${TTS_VOICES[next].label}…`);
+      try {
+        await switchVoice(next);
+        setVoiceIndex(next);
+        setVoiceIndexState(next);
+        setStatusText('Tap the mic and talk to Lina.');
+      } catch (err) {
+        setStatusText(err instanceof Error ? err.message : 'Could not switch voice.');
+      } finally {
+        setIsVoiceLoading(false);
+      }
+    },
+    [voiceIndex]
+  );
 
   const setup = useCallback(async () => {
     try {
@@ -148,7 +163,9 @@ export function useCompanion() {
     reply,
     statusText,
     isRecording,
-    voiceSid,
+    voiceIndex,
+    voiceLabel: TTS_VOICES[voiceIndex].label,
+    isVoiceLoading,
   };
 
   return { state, setup, toggleRecording, cycleVoice };

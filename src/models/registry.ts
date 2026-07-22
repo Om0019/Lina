@@ -39,20 +39,53 @@ export const STT_MODEL: FileModelSpec = {
   approxSizeMB: 148,
 };
 
-// Multi-speaker (904 voices, sid 0-903). Speaker 886 corresponds to LibriTTS-R
-// corpus speaker id "4926" — see voiceSettings.ts for the user-selectable sid.
-export const TTS_MODEL: ArchiveModelSpec = {
-  kind: 'archive',
-  id: 'vits-piper-en_US-libritts_r-medium',
-  url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-libritts_r-medium.tar.bz2',
-  filename: 'vits-piper-en_US-libritts_r-medium.tar.bz2',
-  archiveFormat: 'tar.bz2',
-  approxSizeMB: 79,
-};
+export type VoiceModelSpec = ArchiveModelSpec & { label: string };
 
-export const TTS_SPEAKER_COUNT = 904;
-export const TTS_SPEAKER_ID_DEFAULT = 886;
+// Curated single-speaker Piper voices, each individually trained on a clean
+// studio-quality corpus (unlike a multi-speaker corpus like libritts_r, whose
+// hundreds of speakers range wildly in recording quality). Every entry here
+// sounds natural and realistic, so any option a user picks is a good one.
+export const TTS_VOICES: VoiceModelSpec[] = [
+  {
+    kind: 'archive',
+    id: 'vits-piper-en_US-lessac-medium',
+    label: 'Lessac',
+    url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-lessac-medium.tar.bz2',
+    filename: 'vits-piper-en_US-lessac-medium.tar.bz2',
+    archiveFormat: 'tar.bz2',
+    approxSizeMB: 61,
+  },
+  {
+    kind: 'archive',
+    id: 'vits-piper-en_US-amy-medium',
+    label: 'Amy',
+    url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-amy-medium.tar.bz2',
+    filename: 'vits-piper-en_US-amy-medium.tar.bz2',
+    archiveFormat: 'tar.bz2',
+    approxSizeMB: 61,
+  },
+  {
+    kind: 'archive',
+    id: 'vits-piper-en_US-ryan-medium',
+    label: 'Ryan',
+    url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-ryan-medium.tar.bz2',
+    filename: 'vits-piper-en_US-ryan-medium.tar.bz2',
+    archiveFormat: 'tar.bz2',
+    approxSizeMB: 61,
+  },
+  {
+    kind: 'archive',
+    id: 'vits-piper-en_US-hfc_female-medium',
+    label: 'Hfc Female',
+    url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-hfc_female-medium.tar.bz2',
+    filename: 'vits-piper-en_US-hfc_female-medium.tar.bz2',
+    archiveFormat: 'tar.bz2',
+    approxSizeMB: 61,
+  },
+];
 
-export const ALL_MODELS = [LLM_MODEL, STT_MODEL, TTS_MODEL];
+export const TTS_VOICE_DEFAULT_INDEX = 0;
+
+export const ALL_MODELS = [LLM_MODEL, STT_MODEL, TTS_VOICES[TTS_VOICE_DEFAULT_INDEX]];
 
 export const TOTAL_DOWNLOAD_SIZE_MB = ALL_MODELS.reduce((sum, m) => sum + m.approxSizeMB, 0);

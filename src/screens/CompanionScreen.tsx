@@ -26,9 +26,7 @@ export function CompanionScreen() {
           </Text>
         )}
 
-        <View style={styles.faceFloat}>
-          <CompanionFace expression={state.expression} />
-        </View>
+        <CompanionFace expression={state.expression} />
 
         {!isReady && (
           <View style={styles.progressRow}>
@@ -45,11 +43,25 @@ export function CompanionScreen() {
         <Text style={styles.status}>{state.statusText}</Text>
 
         <View style={styles.voicePicker}>
-          <Pressable onPress={() => cycleVoice(-1)} hitSlop={10} style={styles.voiceArrow}>
+          <Pressable
+            onPress={() => void cycleVoice(-1)}
+            disabled={state.isVoiceLoading}
+            hitSlop={10}
+            style={styles.voiceArrow}
+          >
             <Text style={styles.voiceArrowText}>‹</Text>
           </Pressable>
-          <Text style={styles.voiceLabel}>Voice #{state.voiceSid}</Text>
-          <Pressable onPress={() => cycleVoice(1)} hitSlop={10} style={styles.voiceArrow}>
+          {state.isVoiceLoading ? (
+            <ActivityIndicator color="#7fd1ff" />
+          ) : (
+            <Text style={styles.voiceLabel}>{state.voiceLabel}</Text>
+          )}
+          <Pressable
+            onPress={() => void cycleVoice(1)}
+            disabled={state.isVoiceLoading}
+            hitSlop={10}
+            style={styles.voiceArrow}
+          >
             <Text style={styles.voiceArrowText}>›</Text>
           </Pressable>
         </View>
@@ -62,13 +74,6 @@ const styles = StyleSheet.create({
   wrap: {
     flex: 1,
     backgroundColor: '#000000',
-  },
-  faceFloat: {
-    shadowColor: '#5fd0ff',
-    shadowOpacity: 0.45,
-    shadowRadius: 40,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 20,
   },
   content: {
     flex: 1,
