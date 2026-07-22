@@ -1,12 +1,16 @@
 import type { ExpoConfig } from 'expo/config';
 
 // EAS project id from `eas init` — set once you've linked this app to your EAS project.
-const EAS_PROJECT_ID = process.env.EAS_PROJECT_ID ?? 'REPLACE_WITH_EAS_PROJECT_ID';
+const EAS_PROJECT_ID = process.env.EAS_PROJECT_ID ?? '197e17ad-3be4-4ce5-9300-92fdeac8ba52';
 const IOS_BUNDLE_IDENTIFIER = process.env.IOS_BUNDLE_IDENTIFIER ?? 'com.lina.companion';
+// eas build stamps this from eas.json's per-profile "channel" automatically; local builds
+// (Xcode / `expo run:ios`) don't go through that, so it's set explicitly here instead.
+const UPDATE_CHANNEL = process.env.EAS_UPDATE_CHANNEL ?? 'development';
 
 const config: ExpoConfig = {
   name: 'Lina',
   slug: 'lina',
+  owner: 'om0019',
   version: '1.0.0',
   orientation: 'portrait',
   icon: './assets/icon.png',
@@ -62,6 +66,9 @@ const config: ExpoConfig = {
   },
   updates: {
     url: `https://u.expo.dev/${EAS_PROJECT_ID}`,
+    requestHeaders: {
+      'expo-channel-name': UPDATE_CHANNEL,
+    },
   },
   extra: {
     eas: {
