@@ -28,4 +28,4 @@ jobs:
         run: npm ci
 
       - name: Publish OTA update
-        run: eas update --branch development --message "${{ github.event.head_commit.message }}" --non-interactive
+        run: eas update --branch production --message "${{ github.event.head_commit.message }}" --non-interactive

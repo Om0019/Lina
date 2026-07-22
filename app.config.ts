@@ -5,7 +5,7 @@ const EAS_PROJECT_ID = process.env.EAS_PROJECT_ID ?? '197e17ad-3be4-4ce5-9300-92
 const IOS_BUNDLE_IDENTIFIER = process.env.IOS_BUNDLE_IDENTIFIER ?? 'com.lina.companion';
 // eas build stamps this from eas.json's per-profile "channel" automatically; local builds
 // (Xcode / `expo run:ios`) don't go through that, so it's set explicitly here instead.
-const UPDATE_CHANNEL = process.env.EAS_UPDATE_CHANNEL ?? 'development';
+const UPDATE_CHANNEL = process.env.EAS_UPDATE_CHANNEL ?? 'production';
 
 const config: ExpoConfig = {
   name: 'Lina',
