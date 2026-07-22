@@ -28,14 +28,23 @@ function resumeStateFile(dir: Directory, filename: string): File {
   return new File(dir, `${filename}.resume.json`);
 }
 
+/** How often to checkpoint an in-progress download to disk, independent of backgrounding. */
+const CHECKPOINT_INTERVAL_MS = 20_000;
+
 /**
- * Downloads a file to `dir`, checkpointing resumable state whenever the app
- * backgrounds mid-transfer. `File.downloadFileAsync`'s underlying background
- * URLSession keeps transferring while suspended, but its JS-side task isn't
- * restored if the app process is killed and relaunched — leaving no way to
- * find the (possibly complete) download next time, so the app just restarts
- * it from zero. Explicitly pausing on background and persisting the native
- * resume token avoids that: the next launch resumes instead of restarting.
+ * Downloads a file to `dir`, checkpointing resumable state to disk whenever the app backgrounds
+ * mid-transfer, and periodically while it's active. `File.downloadFileAsync`'s underlying
+ * background URLSession keeps transferring while suspended, but its JS-side task isn't restored
+ * if the app process is killed and relaunched — leaving no way to find the (possibly complete)
+ * download next time, so the app just restarts it from zero.
+ *
+ * Pausing on background and persisting the native resume token is meant to avoid that, but the
+ * app requests no background execution time (no `beginBackgroundTask` assertion), so there's no
+ * guarantee the pause completes — and resume data isn't ready the instant `pause()` is called,
+ * it's produced asynchronously on the native side — before iOS suspends or the process is killed.
+ * That single opportunity can be lost to the exact race this was meant to fix. Checkpointing
+ * periodically during the transfer, not only at the moment of backgrounding, bounds how much
+ * progress an untimely kill can actually cost.
  */
 async function attemptDownload(
   url: string,
@@ -48,41 +57,51 @@ async function attemptDownload(
     ? DownloadTask.fromSavable(resumeState, { onProgress })
     : File.createDownloadTask(url, dir, { onProgress });
 
+  let backgrounding = false;
   const subscription = AppState.addEventListener('change', (status: AppStateStatus) => {
-    if (status === 'background') task.pause();
+    if (status === 'background' && task.state === 'active') {
+      backgrounding = true;
+      task.pause();
+    }
   });
+  const checkpointTimer = setInterval(() => {
+    if (!backgrounding && task.state === 'active') task.pause();
+  }, CHECKPOINT_INTERVAL_MS);
+
+  // Persists a resume token if one is available. Returns false if the pause happened too early —
+  // before iOS transferred enough to produce real resume data, in which case savable() comes back
+  // empty and persisting it would leave every future launch retrying an unusable checkpoint forever.
+  function persistCheckpoint(): boolean {
+    const savable = task.savable();
+    if (!savable.resumeData) return false;
+    if (!stateFile.exists) stateFile.create();
+    stateFile.write(JSON.stringify(savable));
+    return true;
+  }
 
   try {
-    const file = resumeState ? await task.resumeAsync() : await task.downloadAsync();
+    let file = resumeState ? await task.resumeAsync() : await task.downloadAsync();
+    while (!file && !backgrounding) {
+      // Paused by our own periodic checkpoint tick above, not by backgrounding — save progress
+      // and keep going transparently instead of surfacing a pause to the caller.
+      persistCheckpoint();
+      file = await task.resumeAsync();
+    }
     if (!file) {
-      // Paused before completion. If the app backgrounds too early — before iOS has
-      // transferred enough to produce real resume data — savable() comes back empty;
-      // persisting that would leave every future launch retrying an unusable
-      // checkpoint forever. Only checkpoint when there's something to actually resume.
-      const savable = task.savable();
-      if (savable.resumeData) {
-        if (!stateFile.exists) stateFile.create();
-        stateFile.write(JSON.stringify(savable));
-      } else if (stateFile.exists) {
-        stateFile.delete();
-      }
+      if (!persistCheckpoint() && stateFile.exists) stateFile.delete();
       throw new DownloadPausedError();
     }
     if (stateFile.exists) stateFile.delete();
     return file;
   } finally {
+    clearInterval(checkpointTimer);
     subscription.remove();
   }
 }
 
 /**
- * Downloads a file to `dir`, checkpointing resumable state whenever the app
- * backgrounds mid-transfer. `File.downloadFileAsync`'s underlying background
- * URLSession keeps transferring while suspended, but its JS-side task isn't
- * restored if the app process is killed and relaunched — leaving no way to
- * find the (possibly complete) download next time, so the app just restarts
- * it from zero. Explicitly pausing on background and persisting the native
- * resume token avoids that: the next launch resumes instead of restarting.
+ * Loads any resume checkpoint left on disk from a previous launch and continues the download
+ * from there, falling back to a fresh download if the checkpoint turns out to be unusable.
  */
 async function downloadWithResume(
   url: string,
