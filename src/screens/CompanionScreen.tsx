@@ -26,7 +26,9 @@ export function CompanionScreen() {
           </Text>
         )}
 
-        <CompanionFace expression={state.expression} />
+        <View style={styles.faceFloat}>
+          <CompanionFace expression={state.expression} />
+        </View>
 
         {!isReady && (
           <View style={styles.progressRow}>
@@ -59,7 +61,14 @@ export function CompanionScreen() {
 const styles = StyleSheet.create({
   wrap: {
     flex: 1,
-    backgroundColor: '#16181d',
+    backgroundColor: '#000000',
+  },
+  faceFloat: {
+    shadowColor: '#5fd0ff',
+    shadowOpacity: 0.45,
+    shadowRadius: 40,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 20,
   },
   content: {
     flex: 1,
