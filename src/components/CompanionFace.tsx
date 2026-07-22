@@ -7,12 +7,14 @@ import type { Burst, BurstType, Expression, NudgeSource } from '../hooks/useComp
 
 const SIZE = 260;
 const CENTER = SIZE / 2;
-const EYE_GAP = 46;
+const EYE_GAP = 34;
 const EYE_Y = CENTER - 6;
-const BASE_EYE_R = 30;
-const GLOW = '#5fd0ff';
-const BEZEL = '#1c1f26';
-const SCREEN_BG = '#05070c';
+const MOUTH_Y = CENTER + 56;
+// Sampled directly from an Eilik reference photo (mid-expression screen grab):
+// the "eyes" render as a turquoise/mint, not a cool blue.
+const GLOW = '#7af1f0';
+const BEZEL = '#f5f2ea';
+const SCREEN_BG = '#0a0a0b';
 
 const BURST_GLYPH: Record<BurstType, string> = {
   heart: '💗',
@@ -20,32 +22,43 @@ const BURST_GLYPH: Record<BurstType, string> = {
   question: '❓',
 };
 
-function mouthPath(width: number, curve: number, height: number): string {
-  const w = width;
-  const h = height;
-  const y = CENTER + 62;
+// A rect with an independently-radiused corner per side — the building block
+// for the "dome" eye (fully round top, softer bottom) and the pill mouth.
+function roundedRectPath(cx: number, cy: number, w: number, h: number, rTL: number, rTR: number, rBR: number, rBL: number): string {
+  const x = cx - w / 2;
+  const y = cy - h / 2;
   return [
-    `M ${CENTER - w / 2} ${y}`,
-    `Q ${CENTER} ${y + h * curve * 2} ${CENTER + w / 2} ${y}`,
-    `L ${CENTER + w / 2} ${y + h * 0.3}`,
-    `Q ${CENTER} ${y + h * curve * 2 + h * 0.3} ${CENTER - w / 2} ${y + h * 0.3}`,
+    `M ${x + rTL} ${y}`,
+    `H ${x + w - rTR}`,
+    `A ${rTR} ${rTR} 0 0 1 ${x + w} ${y + rTR}`,
+    `V ${y + h - rBR}`,
+    `A ${rBR} ${rBR} 0 0 1 ${x + w - rBR} ${y + h}`,
+    `H ${x + rBL}`,
+    `A ${rBL} ${rBL} 0 0 1 ${x} ${y + h - rBL}`,
+    `V ${y + rTL}`,
+    `A ${rTL} ${rTL} 0 0 1 ${x + rTL} ${y}`,
     'Z',
   ].join(' ');
 }
 
-function squigglePath(width: number): string {
-  const y = CENTER + 62;
-  const w = width;
-  return [
-    `M ${CENTER - w / 2} ${y}`,
-    `Q ${CENTER - w / 4} ${y - 7} ${CENTER} ${y}`,
-    `Q ${CENTER + w / 4} ${y + 7} ${CENTER + w / 2} ${y}`,
-  ].join(' ');
+function domeEyePath(cx: number, cy: number, w: number, h: number): string {
+  const topR = w / 2;
+  const bottomR = h * 0.22;
+  return roundedRectPath(cx, cy, w, h, topR, topR, bottomR, bottomR);
 }
 
-function closedEyePath(cx: number, cy: number, r: number): string {
-  const rx = r * 0.62;
-  return `M ${cx - rx} ${cy} Q ${cx} ${cy + rx * 0.85} ${cx + rx} ${cy}`;
+// A filled lens/crescent — the shape behind happy (peak up), sad/angry
+// (peak down, tilted), sleepy and asleep (nearly flat). Drawn in local
+// space around (0,0); callers wrap it in a translate+rotate transform.
+function crescentPath(halfW: number, peak: number, thickness: number): string {
+  return [
+    `M ${-halfW} 0`,
+    `Q 0 ${-peak} ${halfW} 0`,
+    `Q ${halfW} ${thickness * 0.6} ${halfW - thickness * 0.3} ${thickness}`,
+    `Q 0 ${-peak + thickness} ${-halfW + thickness * 0.3} ${thickness}`,
+    `Q ${-halfW} ${thickness * 0.6} ${-halfW} 0`,
+    'Z',
+  ].join(' ');
 }
 
 function heartPath(cx: number, cy: number, r: number): string {
@@ -58,172 +71,156 @@ function heartPath(cx: number, cy: number, r: number): string {
   ].join(' ');
 }
 
-type EyeStyle = 'normal' | 'heart' | 'x' | 'closed';
-type MouthShape = 'default' | 'o' | 'squiggle';
-type BrowConfig = { show: boolean; leftAngle: number; rightAngle: number; translateY: number };
+// One wide X spanning both eye positions (not two separate X's) — matches
+// how the "glitched/dead" expression reads on the reference.
+function bigXPath(span: number): string {
+  return [
+    `M ${CENTER - span} ${EYE_Y - span * 0.6} L ${CENTER + span} ${EYE_Y + span * 0.6}`,
+    `M ${CENTER - span} ${EYE_Y + span * 0.6} L ${CENTER + span} ${EYE_Y - span * 0.6}`,
+  ].join(' ');
+}
+
+function zigzagMouthPath(w: number): string {
+  const q = w / 4;
+  return [
+    `M ${CENTER - w / 2} ${MOUTH_Y}`,
+    `L ${CENTER - q} ${MOUTH_Y + 8}`,
+    `L ${CENTER} ${MOUTH_Y}`,
+    `L ${CENTER + q} ${MOUTH_Y + 8}`,
+    `L ${CENTER + w / 2} ${MOUTH_Y}`,
+  ].join(' ');
+}
+
+function trianglePath(w: number, h: number): string {
+  return `M ${CENTER - w / 2} ${MOUTH_Y} L ${CENTER + w / 2} ${MOUTH_Y} L ${CENTER} ${MOUTH_Y + h} Z`;
+}
+
+type EyeDesc =
+  | { kind: 'dome'; w: number; h: number; closable: true }
+  | { kind: 'circle'; r: number; closable: boolean }
+  | { kind: 'crescent'; halfW: number; peak: number; thickness: number; rotate: number; closable: false }
+  | { kind: 'heart'; size: number; closable: false };
+
+type MouthDesc =
+  | { kind: 'none' }
+  | { kind: 'grin'; w: number; h: number }
+  | { kind: 'oval'; w: number; h: number }
+  | { kind: 'zigzag'; w: number }
+  | { kind: 'triangle'; w: number; h: number };
 
 type FaceConfig = {
-  eyeR: number;
-  eyeStyle: EyeStyle;
-  mouthShape: MouthShape;
-  mouthCurve: number;
-  mouthW: number;
-  mouthH: number;
-  brows: BrowConfig;
-  blush: boolean;
-  closeOverride: number | null;
+  special: 'none' | 'x';
+  leftEye: EyeDesc;
+  rightEye: EyeDesc;
+  mouth: MouthDesc;
 };
 
-const NO_BROWS: BrowConfig = { show: false, leftAngle: 0, rightAngle: 0, translateY: 0 };
+function dome(w: number, h: number): EyeDesc {
+  return { kind: 'dome', w, h, closable: true };
+}
 
 function faceConfigFor(expression: Expression): FaceConfig {
-  const base: FaceConfig = {
-    eyeR: BASE_EYE_R,
-    eyeStyle: 'normal',
-    mouthShape: 'default',
-    mouthCurve: 0.3,
-    mouthW: 46,
-    mouthH: 14,
-    brows: NO_BROWS,
-    blush: false,
-    closeOverride: null,
-  };
-
   switch (expression) {
-    case 'happy':
-      return { ...base, mouthCurve: 1, eyeR: BASE_EYE_R * 0.88, blush: true };
-    case 'love':
-      return { ...base, eyeStyle: 'heart', mouthCurve: 0.9, blush: true };
+    case 'happy': {
+      const eye: EyeDesc = { kind: 'crescent', halfW: 22, peak: 22, thickness: 13, rotate: 0, closable: false };
+      return { special: 'none', leftEye: eye, rightEye: eye, mouth: { kind: 'grin', w: 52, h: 26 } };
+    }
+    case 'love': {
+      const eye: EyeDesc = { kind: 'heart', size: 30, closable: false };
+      return { special: 'none', leftEye: eye, rightEye: eye, mouth: { kind: 'none' } };
+    }
     case 'sad':
       return {
-        ...base,
-        mouthCurve: -0.5,
-        eyeR: BASE_EYE_R * 0.9,
-        brows: { show: true, leftAngle: -14, rightAngle: 14, translateY: -2 },
+        special: 'none',
+        leftEye: { kind: 'crescent', halfW: 20, peak: -10, thickness: 12, rotate: -12, closable: false },
+        rightEye: { kind: 'crescent', halfW: 20, peak: -10, thickness: 12, rotate: 12, closable: false },
+        mouth: { kind: 'oval', w: 22, h: 14 },
       };
     case 'angry':
       return {
-        ...base,
-        mouthCurve: -0.4,
-        eyeR: BASE_EYE_R * 0.85,
-        brows: { show: true, leftAngle: 18, rightAngle: -18, translateY: 2 },
+        special: 'none',
+        leftEye: { kind: 'crescent', halfW: 20, peak: -14, thickness: 11, rotate: 14, closable: false },
+        rightEye: { kind: 'crescent', halfW: 20, peak: -14, thickness: 11, rotate: -14, closable: false },
+        mouth: { kind: 'zigzag', w: 40 },
       };
-    case 'surprised':
-      return {
-        ...base,
-        eyeR: BASE_EYE_R * 1.3,
-        mouthShape: 'o',
-        mouthW: 26,
-        mouthH: 26,
-        brows: { show: true, leftAngle: 0, rightAngle: 0, translateY: -8 },
-      };
+    case 'surprised': {
+      const eye: EyeDesc = { kind: 'circle', r: 32, closable: false };
+      return { special: 'none', leftEye: eye, rightEye: eye, mouth: { kind: 'oval', w: 20, h: 20 } };
+    }
     case 'confused':
       return {
-        ...base,
-        eyeR: BASE_EYE_R * 1.05,
-        mouthShape: 'squiggle',
-        mouthW: 40,
-        brows: { show: true, leftAngle: -10, rightAngle: 10, translateY: -3 },
+        special: 'none',
+        leftEye: dome(34, 60),
+        rightEye: { kind: 'crescent', halfW: 19, peak: 6, thickness: 10, rotate: 10, closable: false },
+        mouth: { kind: 'triangle', w: 14, h: 12 },
       };
-    case 'listening':
-      return { ...base, eyeR: BASE_EYE_R * 1.12 };
+    case 'listening': {
+      const eye = dome(36, 68);
+      return { special: 'none', leftEye: eye, rightEye: eye, mouth: { kind: 'none' } };
+    }
     case 'thinking':
       return {
-        ...base,
-        eyeR: BASE_EYE_R * 1.12,
-        brows: { show: true, leftAngle: -6, rightAngle: 4, translateY: -3 },
+        special: 'none',
+        leftEye: { kind: 'crescent', halfW: 19, peak: 2, thickness: 11, rotate: -4, closable: false },
+        rightEye: { kind: 'crescent', halfW: 19, peak: 2, thickness: 11, rotate: 6, closable: false },
+        mouth: { kind: 'none' },
       };
-    case 'talking':
-      return { ...base, mouthCurve: 0.4 };
-    case 'sleepy':
-      return { ...base, mouthCurve: -0.05, closeOverride: 0.72 };
-    case 'asleep':
-      return { ...base, eyeStyle: 'closed', mouthW: 20, mouthH: 8, mouthCurve: 0.15 };
+    case 'talking': {
+      const eye = dome(34, 60);
+      return { special: 'none', leftEye: eye, rightEye: eye, mouth: { kind: 'grin', w: 44, h: 12 } };
+    }
+    case 'sleepy': {
+      const eye: EyeDesc = { kind: 'crescent', halfW: 22, peak: -6, thickness: 9, rotate: 0, closable: false };
+      return { special: 'none', leftEye: eye, rightEye: eye, mouth: { kind: 'none' } };
+    }
+    case 'asleep': {
+      const eye: EyeDesc = { kind: 'crescent', halfW: 22, peak: -2, thickness: 7, rotate: 0, closable: false };
+      return { special: 'none', leftEye: eye, rightEye: eye, mouth: { kind: 'none' } };
+    }
     case 'error':
-      return { ...base, eyeStyle: 'x', mouthShape: 'squiggle', mouthW: 36 };
+      return { special: 'x', leftEye: dome(34, 60), rightEye: dome(34, 60), mouth: { kind: 'none' } };
     case 'idle':
-    default:
-      return base;
+    default: {
+      const eye = dome(34, 60);
+      return { special: 'none', leftEye: eye, rightEye: eye, mouth: { kind: 'none' } };
+    }
   }
 }
 
-function EyeShape({
-  cx,
-  cy,
-  r,
-  closeAmt,
-  style,
-  dx,
-  dy,
-}: {
-  cx: number;
-  cy: number;
-  r: number;
-  closeAmt: number;
-  style: EyeStyle;
-  dx: number;
-  dy: number;
-}) {
-  const x = cx + dx;
-  const y = cy + dy;
+function EyeShape({ eye, cx, cy, closeAmt }: { eye: EyeDesc; cx: number; cy: number; closeAmt: number }) {
+  if (eye.kind === 'heart') return <Path d={heartPath(cx, cy, eye.size)} fill={GLOW} />;
 
-  if (style === 'heart') return <Path d={heartPath(x, y, r)} fill={GLOW} />;
-  if (style === 'x') {
-    const s = r * 0.5;
+  if (eye.kind === 'crescent') {
     return (
-      <G stroke={GLOW} strokeWidth={7} strokeLinecap="round">
-        <Line x1={x - s} y1={y - s} x2={x + s} y2={y + s} />
-        <Line x1={x - s} y1={y + s} x2={x + s} y2={y - s} />
-      </G>
+      <Path
+        d={crescentPath(eye.halfW, eye.peak, eye.thickness)}
+        fill={GLOW}
+        transform={`translate(${cx} ${cy}) rotate(${eye.rotate})`}
+      />
     );
   }
-  if (style === 'closed') {
-    return <Path d={closedEyePath(x, y, r)} stroke={GLOW} strokeWidth={7} strokeLinecap="round" fill="none" />;
+
+  if (eye.kind === 'circle') {
+    const ry = eye.closable ? Math.max(2, eye.r * (1 - closeAmt * 0.85)) : eye.r;
+    return <Ellipse cx={cx} cy={cy} rx={eye.r} ry={ry} fill={GLOW} />;
   }
 
-  const rx = r * 0.62;
-  const ry = Math.max(2, r * (1 - closeAmt * 0.9));
-  return (
-    <G>
-      <Ellipse cx={x} cy={y} rx={rx} ry={ry} fill={GLOW} />
-      {ry > r * 0.4 && (
-        <Ellipse cx={x - rx * 0.35} cy={y - ry * 0.35} rx={rx * 0.22} ry={ry * 0.22} fill="#eafcff" opacity={0.75} />
-      )}
-    </G>
-  );
+  // dome
+  const h = Math.max(6, eye.h * (1 - closeAmt * 0.85));
+  return <Path d={domeEyePath(cx, cy, eye.w, h)} fill={GLOW} />;
 }
 
-function Brow({ cx, cy, width, angle }: { cx: number; cy: number; width: number; angle: number }) {
-  return (
-    <Line
-      x1={cx - width / 2}
-      y1={cy}
-      x2={cx + width / 2}
-      y2={cy}
-      stroke={GLOW}
-      strokeWidth={6}
-      strokeLinecap="round"
-      opacity={0.85}
-      transform={`rotate(${angle} ${cx} ${cy})`}
-    />
-  );
-}
-
-function Mouth({ shape, width, curve, height }: { shape: MouthShape; width: number; curve: number; height: number }) {
-  if (shape === 'o') return <Ellipse cx={CENTER} cy={CENTER + 62} rx={width / 2} ry={height / 2} fill={GLOW} />;
-  if (shape === 'squiggle') {
-    return <Path d={squigglePath(width)} stroke={GLOW} strokeWidth={6} strokeLinecap="round" fill="none" />;
+function Mouth({ mouth, mouthOpen }: { mouth: MouthDesc; mouthOpen: number }) {
+  if (mouth.kind === 'none') return null;
+  if (mouth.kind === 'grin') {
+    const h = mouth.h + mouthOpen * 16;
+    return <Path d={roundedRectPath(CENTER, MOUTH_Y, mouth.w, h, h / 2, h / 2, h / 2, h / 2)} fill={GLOW} />;
   }
-  return <Path d={mouthPath(width, curve, height)} fill={GLOW} />;
-}
-
-function Blush() {
-  return (
-    <G opacity={0.5}>
-      <Ellipse cx={CENTER - EYE_GAP - 34} cy={EYE_Y + 34} rx={16} ry={9} fill="#ff8fa8" />
-      <Ellipse cx={CENTER + EYE_GAP + 34} cy={EYE_Y + 34} rx={16} ry={9} fill="#ff8fa8" />
-    </G>
-  );
+  if (mouth.kind === 'oval') return <Ellipse cx={CENTER} cy={MOUTH_Y} rx={mouth.w / 2} ry={mouth.h / 2} fill={GLOW} />;
+  if (mouth.kind === 'zigzag') {
+    return <Path d={zigzagMouthPath(mouth.w)} stroke={GLOW} strokeWidth={5} strokeLinecap="round" strokeLinejoin="round" fill="none" />;
+  }
+  return <Path d={trianglePath(mouth.w, mouth.h)} fill={GLOW} />;
 }
 
 function BurstParticle({ dx, dy, glyph, delay }: { dx: number; dy: number; glyph: string; delay: number }) {
@@ -250,11 +247,11 @@ function BurstParticle({ dx, dy, glyph, delay }: { dx: number; dy: number; glyph
 type ParticleInstance = { id: string; glyph: string; dx: number; dy: number; delay: number };
 
 /**
- * Ported from the canvas-based face in the original web prototype
- * (web-prototype/index.html drawFace()), redrawn as SVG and considerably
- * expanded: an Eilik-style bezeled screen face, more emotions, eyebrows,
- * blush, tilt parallax, a touch "boop" reaction, sleep/zzz, and floating
- * emotion particles (hearts/sparkles/question marks).
+ * Matched to an Eilik reference photo: turquoise/mint (#7af1f0) shapes on a
+ * near-black round screen with a light plastic bezel, dome-shaped resting
+ * eyes, and expression-specific shapes (crescents for happy/sad/angry/sleepy,
+ * circles for surprised, a heart, a single wide X for error) — including a
+ * real mouth shape where the reference shows one, not eyes-only.
  */
 export function CompanionFace({
   expression,
@@ -362,16 +359,8 @@ export function CompanionFace({
   }, [burst]);
 
   const cfg = faceConfigFor(expression);
-  let { mouthCurve, mouthW, mouthH, eyeR } = cfg;
-  const { eyeStyle, mouthShape, brows, blush, closeOverride } = cfg;
-
-  if (expression === 'talking') mouthH = 10 + mouthOpen * 22;
-
-  const closeAmt = closeOverride ?? blink;
-  const eyeDX = tilt.x * 10;
-  const eyeDY = tilt.y * 8;
-  const browGap = eyeR * 1.3;
-  const browY = EYE_Y - eyeR - 14 + brows.translateY;
+  const eyeDX = tilt.x * 8;
+  const eyeDY = tilt.y * 6;
 
   const translateY = floatAnim.interpolate({ inputRange: [0, 1], outputRange: [-10, 10] });
   const rotate = `${(tilt.x * 6).toFixed(2)}deg`;
@@ -390,17 +379,18 @@ export function CompanionFace({
       <Animated.View style={[styles.wrap, { transform: [{ translateY }, { scale: pressScale }, { rotate }] }]}>
         <Svg width={SIZE} height={SIZE}>
           <Circle cx={CENTER} cy={CENTER} r={CENTER} fill={BEZEL} />
-          <Circle cx={CENTER} cy={CENTER} r={CENTER - 8} fill={SCREEN_BG} />
-          {blush && <Blush />}
-          <EyeShape cx={CENTER - EYE_GAP} cy={EYE_Y} r={eyeR} closeAmt={closeAmt} style={eyeStyle} dx={eyeDX} dy={eyeDY} />
-          <EyeShape cx={CENTER + EYE_GAP} cy={EYE_Y} r={eyeR} closeAmt={closeAmt} style={eyeStyle} dx={eyeDX} dy={eyeDY} />
-          {brows.show && (
+          <Circle cx={CENTER} cy={CENTER} r={CENTER - 5} fill={SCREEN_BG} />
+          {cfg.special === 'x' ? (
+            <G stroke={GLOW} strokeWidth={8} strokeLinecap="round">
+              <Path d={bigXPath(EYE_GAP + 20)} />
+            </G>
+          ) : (
             <>
-              <Brow cx={CENTER - EYE_GAP} cy={browY} width={browGap} angle={brows.leftAngle} />
-              <Brow cx={CENTER + EYE_GAP} cy={browY} width={browGap} angle={brows.rightAngle} />
+              <EyeShape eye={cfg.leftEye} cx={CENTER - EYE_GAP + eyeDX} cy={EYE_Y + eyeDY} closeAmt={blink} />
+              <EyeShape eye={cfg.rightEye} cx={CENTER + EYE_GAP + eyeDX} cy={EYE_Y + eyeDY} closeAmt={blink} />
+              <Mouth mouth={cfg.mouth} mouthOpen={mouthOpen} />
             </>
           )}
-          <Mouth shape={mouthShape} width={mouthW} curve={mouthCurve} height={mouthH} />
         </Svg>
 
         {expression === 'asleep' &&
