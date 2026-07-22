@@ -37,6 +37,53 @@ function resumeStateFile(dir: Directory, filename: string): File {
  * it from zero. Explicitly pausing on background and persisting the native
  * resume token avoids that: the next launch resumes instead of restarting.
  */
+async function attemptDownload(
+  url: string,
+  dir: Directory,
+  stateFile: File,
+  resumeState: DownloadPauseState | null,
+  onProgress?: (progress: DownloadProgress) => void
+): Promise<File> {
+  const task = resumeState
+    ? DownloadTask.fromSavable(resumeState, { onProgress })
+    : File.createDownloadTask(url, dir, { onProgress });
+
+  const subscription = AppState.addEventListener('change', (status: AppStateStatus) => {
+    if (status === 'background') task.pause();
+  });
+
+  try {
+    const file = resumeState ? await task.resumeAsync() : await task.downloadAsync();
+    if (!file) {
+      // Paused before completion. If the app backgrounds too early — before iOS has
+      // transferred enough to produce real resume data — savable() comes back empty;
+      // persisting that would leave every future launch retrying an unusable
+      // checkpoint forever. Only checkpoint when there's something to actually resume.
+      const savable = task.savable();
+      if (savable.resumeData) {
+        if (!stateFile.exists) stateFile.create();
+        stateFile.write(JSON.stringify(savable));
+      } else if (stateFile.exists) {
+        stateFile.delete();
+      }
+      throw new DownloadPausedError();
+    }
+    if (stateFile.exists) stateFile.delete();
+    return file;
+  } finally {
+    subscription.remove();
+  }
+}
+
+/**
+ * Downloads a file to `dir`, checkpointing resumable state whenever the app
+ * backgrounds mid-transfer. `File.downloadFileAsync`'s underlying background
+ * URLSession keeps transferring while suspended, but its JS-side task isn't
+ * restored if the app process is killed and relaunched — leaving no way to
+ * find the (possibly complete) download next time, so the app just restarts
+ * it from zero. Explicitly pausing on background and persisting the native
+ * resume token avoids that: the next launch resumes instead of restarting.
+ */
 async function downloadWithResume(
   url: string,
   dir: Directory,
@@ -48,25 +95,15 @@ async function downloadWithResume(
     ? (JSON.parse(stateFile.textSync()) as DownloadPauseState)
     : null;
 
-  const task = savedState
-    ? DownloadTask.fromSavable(savedState, { onProgress })
-    : File.createDownloadTask(url, dir, { onProgress });
-
-  const subscription = AppState.addEventListener('change', (status: AppStateStatus) => {
-    if (status === 'background') task.pause();
-  });
-
   try {
-    const file = savedState ? await task.resumeAsync() : await task.downloadAsync();
-    if (!file) {
-      if (!stateFile.exists) stateFile.create();
-      stateFile.write(JSON.stringify(task.savable()));
-      throw new DownloadPausedError();
-    }
+    return await attemptDownload(url, dir, stateFile, savedState, onProgress);
+  } catch (err) {
+    if (err instanceof DownloadPausedError || !savedState) throw err;
+    // The saved checkpoint turned out to be unusable (e.g. "no resume data" — a stale
+    // or corrupt state file). Discard it and restart fresh instead of getting stuck
+    // retrying a broken resume on every future launch.
     if (stateFile.exists) stateFile.delete();
-    return file;
-  } finally {
-    subscription.remove();
+    return attemptDownload(url, dir, stateFile, null, onProgress);
   }
 }
 
