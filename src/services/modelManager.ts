@@ -125,6 +125,15 @@ async function downloadWithResume(
   }
 }
 
+// How much smaller than the registry's approxSizeMB a cached file can be
+// before it's treated as an interrupted/corrupt download rather than a real
+// (if imprecisely-labeled) complete one.
+const MIN_VALID_SIZE_FRACTION = 0.9;
+
+function isPlausiblyComplete(file: File, approxSizeMB: number): boolean {
+  return file.size >= approxSizeMB * 1024 * 1024 * MIN_VALID_SIZE_FRACTION;
+}
+
 /**
  * Downloads a single-file model (LLM gguf, whisper ggml) to the app's
  * document directory if it isn't already there, and returns its local path.
@@ -136,8 +145,15 @@ export async function ensureFileModel(
   const dir = modelsDirectory();
   const destination = new File(dir, spec.filename);
   if (destination.exists) {
-    onProgress?.({ stage: 'done', fraction: 1 });
-    return destination.uri;
+    if (isPlausiblyComplete(destination, spec.approxSizeMB)) {
+      onProgress?.({ stage: 'done', fraction: 1 });
+      return destination.uri;
+    }
+    // Too small to be the real file — left over from a download that never
+    // finished (e.g. the process was killed mid-transfer). Loading this as
+    // a model would hand llama.cpp/whisper.cpp a truncated file, which
+    // segfaults natively instead of throwing a catchable JS error.
+    destination.delete();
   }
 
   const file = await downloadWithResume(spec.url, destination, (data) => {
@@ -167,6 +183,11 @@ export async function ensureArchiveModel(
   }
 
   const archiveFile = new File(dir, spec.filename);
+  if (archiveFile.exists && !isPlausiblyComplete(archiveFile, spec.approxSizeMB)) {
+    // Same guard as ensureFileModel: don't hand a truncated archive to the
+    // native extractor.
+    archiveFile.delete();
+  }
   if (!archiveFile.exists) {
     await downloadWithResume(spec.url, archiveFile, (data) => {
       const fraction = data.totalBytes > 0 ? data.bytesWritten / data.totalBytes : 0;
