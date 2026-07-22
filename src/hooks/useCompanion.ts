@@ -1,4 +1,4 @@
-import { useAudioPlayer, useAudioPlayerStatus, useAudioRecorder } from 'expo-audio';
+import { useAudioPlayer, useAudioRecorder } from 'expo-audio';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { generateReply, loadLlm } from '../services/llm';
@@ -39,6 +39,7 @@ const STAGE_LABEL: Record<Exclude<SetupStage, 'not-started' | 'ready'>, string> 
 const REACTING_EXPRESSIONS: Expression[] = ['listening', 'thinking', 'talking'];
 const RESTING_EXPRESSIONS: Expression[] = ['idle', 'sleepy', 'asleep'];
 const EMOTION_HOLD_MS = 1500;
+const TALKING_HOLD_MS = 1400;
 const IDLE_TO_SLEEPY_MS = 45_000;
 const SLEEPY_TO_ASLEEP_MS = 30_000;
 const SLEEP_CHECK_INTERVAL_MS = 4000;
@@ -57,9 +58,8 @@ export function useCompanion() {
 
   const recorder = useAudioRecorder(WHISPER_RECORDING_OPTIONS);
   const player = useAudioPlayer();
-  const playerStatus = useAudioPlayerStatus(player);
   const emotionHoldTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingEmotion = useRef<Expression>('happy');
+  const talkingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const expressionRef = useRef<Expression>('idle');
   const setupStageRef = useRef<SetupStage>('not-started');
   const lastActiveAt = useRef(Date.now());
@@ -173,6 +173,7 @@ export function useCompanion() {
   const startRecording = useCallback(async () => {
     markActive();
     if (emotionHoldTimer.current) clearTimeout(emotionHoldTimer.current);
+    if (talkingTimer.current) clearTimeout(talkingTimer.current);
     setTranscript('');
     setReply('');
     setExpression('listening');
@@ -206,30 +207,25 @@ export function useCompanion() {
 
       const replyResult = await generateReply(text);
       setReply(replyResult.text);
-      pendingEmotion.current = replyResult.expression;
 
       setExpression('talking');
       setStatusText('Speaking…');
       const audioUri = await synthesizeToFile(replyResult.text);
       player.replace(audioUri);
       player.play();
-      // Expression settles to how Lina actually feels about her reply once
-      // she's done speaking — see the playerStatus.didJustFinish effect below.
       setStatusText('Tap the mic, or just tap Lina, to say hi.');
+
+      // Settles to how Lina actually feels about her reply once she's done
+      // "speaking". A fixed hold rather than listening for real playback
+      // completion — expo-audio's status hook isn't worth the native-module
+      // risk here for a purely cosmetic timing win.
+      if (talkingTimer.current) clearTimeout(talkingTimer.current);
+      talkingTimer.current = setTimeout(() => showEmotion(replyResult.expression), TALKING_HOLD_MS);
     } catch (err) {
       setExpression('error');
       setStatusText(err instanceof Error ? err.message : 'Something went wrong.');
     }
-  }, [recorder, player]);
-
-  // Waits for the TTS clip to actually finish before switching off the
-  // talking mouth animation, so it stays in sync with real speech length
-  // instead of a fixed guess.
-  useEffect(() => {
-    if (playerStatus.didJustFinish && expressionRef.current === 'talking') {
-      showEmotion(pendingEmotion.current);
-    }
-  }, [playerStatus.didJustFinish, showEmotion]);
+  }, [recorder, player, showEmotion]);
 
   const toggleRecording = useCallback(() => {
     if (isRecording) {
@@ -261,6 +257,7 @@ export function useCompanion() {
   useEffect(() => {
     return () => {
       if (emotionHoldTimer.current) clearTimeout(emotionHoldTimer.current);
+      if (talkingTimer.current) clearTimeout(talkingTimer.current);
     };
   }, []);
 
