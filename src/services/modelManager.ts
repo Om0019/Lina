@@ -166,9 +166,10 @@ export async function ensureFileModel(
 }
 
 /**
- * Downloads an archive-based model (Piper/VITS voice bundles ship as
- * tar.bz2: model.onnx + tokens.txt + espeak-ng-data) and extracts it once.
- * Returns the local directory the model files were extracted into.
+ * Downloads an archive-based model (voice bundles ship as tar.bz2 —
+ * model.onnx + tokens.txt + espeak-ng-data, plus voices.bin for a
+ * multi-speaker model like Kokoro) and extracts it once. Returns the local
+ * directory the model files were extracted into.
  */
 export async function ensureArchiveModel(
   spec: ArchiveModelSpec,

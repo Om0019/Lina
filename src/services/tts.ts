@@ -8,18 +8,24 @@ import { toNativePath } from './nativePath';
 import { getVoiceIndex } from './voiceSettings';
 
 let engine: TtsEngine | null = null;
-let engineVoiceIndex = -1;
+let engineModelId: string | null = null;
+let currentSid = 0;
 
 async function loadVoice(index: number, onProgress?: (progress: ModelProgress) => void): Promise<void> {
-  if (engine && engineVoiceIndex === index) return;
-  const modelDir = await ensureArchiveModel(TTS_VOICES[index], onProgress);
+  const spec = TTS_VOICES[index];
+  currentSid = spec.sid ?? 0;
+  // A voice switch that stays within the same archive (e.g. two Kokoro
+  // speakers) only changes which sid generateSpeech is called with — no
+  // need to re-extract or reload the underlying model.
+  if (engine && engineModelId === spec.id) return;
+  const modelDir = await ensureArchiveModel(spec, onProgress);
   const nextEngine = await createTTS({
     modelPath: fileModelPath(toNativePath(modelDir)),
-    modelType: 'vits',
+    modelType: spec.modelType,
   });
   await engine?.destroy();
   engine = nextEngine;
-  engineVoiceIndex = index;
+  engineModelId = spec.id;
 }
 
 export async function loadTts(onProgress?: (progress: ModelProgress) => void): Promise<void> {
@@ -35,7 +41,7 @@ export async function switchVoice(index: number, onProgress?: (progress: ModelPr
 export async function synthesizeToFile(text: string): Promise<string> {
   if (!engine) throw new Error('TTS not loaded — call loadTts() first.');
 
-  const audio = await engine.generateSpeech(text, { sid: 0 });
+  const audio = await engine.generateSpeech(text, { sid: currentSid });
 
   const outDir = new Directory(Paths.cache, 'tts-output');
   if (!outDir.exists) outDir.create({ intermediates: true });
@@ -48,5 +54,5 @@ export async function synthesizeToFile(text: string): Promise<string> {
 export async function unloadTts(): Promise<void> {
   await engine?.destroy();
   engine = null;
-  engineVoiceIndex = -1;
+  engineModelId = null;
 }
