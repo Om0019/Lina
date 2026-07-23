@@ -30,8 +30,12 @@ let history: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
 export type LlmReply = { text: string; expression: Expression };
 
 function parseReply(raw: string): { emotionTag: string | null; text: string } {
-  const match = raw.match(/^\s*emotion\s*:\s*([a-z]+)\s*\n+([\s\S]*)/i);
-  if (match) return { emotionTag: match[1], text: match[2].trim() };
+  // Lenient on purpose: a 1B-parameter model doesn't reliably follow "blank
+  // line after the tag" formatting, and matching only that exact shape used
+  // to leave "EMOTION: happy" sitting in the spoken reply whenever the model
+  // ran the tag straight into its answer on one line.
+  const match = raw.match(/^\s*emotion\s*:?\s*([a-z]+)\W*/i);
+  if (match) return { emotionTag: match[1], text: raw.slice(match[0].length).trim() };
   return { emotionTag: null, text: raw.trim() };
 }
 
