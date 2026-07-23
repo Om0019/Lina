@@ -42,8 +42,12 @@ function roundedRectPath(cx: number, cy: number, w: number, h: number, rTL: numb
 }
 
 function domeEyePath(cx: number, cy: number, w: number, h: number): string {
-  const topR = w / 2;
-  const bottomR = h * 0.22;
+  // Clamped to the shape's own half-height: at rest h is tall enough that this
+  // never bites, but a blink animates h down toward 0 while w stays fixed, and
+  // unclamped radii larger than the shrunk box make roundedRectPath emit a
+  // self-intersecting path (a warped eye with a stray disconnected fragment).
+  const topR = Math.min(w / 2, h / 2);
+  const bottomR = Math.min(h * 0.22, h / 2);
   return roundedRectPath(cx, cy, w, h, topR, topR, bottomR, bottomR);
 }
 
@@ -316,6 +320,10 @@ export function CompanionFace({
       }
       raf = requestAnimationFrame(tick);
     };
+    // Talking is the only expression that drives mouthOpen — reset it so a
+    // mood change right after talking (e.g. to 'happy', which also uses a
+    // grin mouth) doesn't inherit a stale flapping-open size.
+    if (expression !== 'talking') setMouthOpen(0);
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [expression]);
